@@ -1,3 +1,75 @@
+# OPC UA
+
+Canvas IO Workflows — maintained integration/fork of an independent Node-RED node package.
+
+## Canvas IO
+
+| | |
+|--|--|
+| Domain | Industrial / OPC UA |
+| Development status | Integrated in local harness (cio-wfs-dev) |
+| Palette category (operational) | `Canvas IO` |
+| Config nodes | remain `category: "config"` |
+| Local repository | `cio-wfs-nodes/cio-wfs-node-industrial-opcua` |
+| npm package name | `node-red-contrib-opcua` (unchanged) |
+
+`cio-wfs-nodes` is an organizational parent only — not a monorepo. One node package = one Git repository.
+
+This repository is a **Canvas IO-maintained integration/fork**. Protocol and node runtime logic originate from upstream; Canvas IO changes are limited to integration, presentation, and local development packaging.
+
+## Nodes
+
+### Operational (palette: Canvas IO)
+
+- `OpcUa-Item`, `OpcUa-Client`, `OpcUa-Browser`, `OpcUa-Server`, `OpcUa-Event`, `OpcUa-Method`, `OpcUa-Rights`, `OpcUa-Discovery`
+
+### Configuration
+
+- `OpcUa-Endpoint`
+
+## Development
+
+```powershell
+cd C:\GitHub\canvasio\cio-wfs-nodes\cio-wfs-node-industrial-opcua
+npm install
+```
+
+Local harness:
+
+```powershell
+cd C:\GitHub\canvasio\cio-wfs-dev
+npm install
+cd C:\GitHub\canvasio\cio-wfs-core
+node packages/node_modules/node-red/red.js --userDir C:\GitHub\canvasio\cio-wfs-dev
+```
+
+Open http://localhost:1880
+
+## Testing
+
+```powershell
+npm test
+```
+
+## Upstream
+
+| | |
+|--|--|
+| Original package | `node-red-contrib-opcua` |
+| Upstream project | https://github.com/mikakaraila/node-red-contrib-opcua |
+
+Canvas IO does not claim authorship of the original upstream implementation.
+
+## License
+
+Apache-2.0 — see ``LICENSE``.
+
+---
+
+## Upstream documentation
+
+The following sections retain useful upstream technical documentation (adapted only where needed).
+
 [![NPM download](https://img.shields.io/npm/dm/node-red-contrib-opcua.svg)](http://www.npm-stats.com/~packages/node-red-contrib-opcua)
 [![NPM version](https://badge.fury.io/js/node-red-contrib-opcua.png)](http://badge.fury.io/js/node-red-contrib-opcua)
 
@@ -89,7 +161,7 @@ Output message
 |  payload           | dataValue.value.value     |                           |
 |  statusCode	     | OPC UA StatusCode         |                           |
 |  sourceTimestamp	 | Source timestamp          |                           |
-|  serverTimestamp   | Server´s timestamp        |                           |
+|  serverTimestamp   | ServerÂ´s timestamp        |                           |
 
 Release history (only couple of older releases):
 

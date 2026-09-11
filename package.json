@@ -12,7 +12,8 @@
     "opc-ua",
     "unified automation",
     "opc foundation",
-    "node-opcua"
+    "node-opcua",
+    "canvasio"
   ],
   "author": {
     "name": "Mika Karaila",
