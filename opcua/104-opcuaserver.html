@@ -19,6 +19,7 @@ limitations under the License.
 <script type="text/javascript">
     RED.nodes.registerType('OpcUa-Server',{
         category: 'Industrial · OPC UA',
+    paletteLabel: 'OPC UA Server',
         color:"#3FADB5",
         defaults: {
             port: {value: "53880", required: true},
@@ -58,7 +59,7 @@ limitations under the License.
         align: "right",
         icon: "opcuanodeLogo.png",
         label: function() {
-            return this.name || "OPC UA server";
+            return this.name || "OPC UA Server";
         },
         labelStyle: function() {
             return this.name?"node_label_italic":"";
