@@ -3,14 +3,17 @@
 /**
  * MEM-006a negative control.
  *
- * Copies the *pre-fix* `opcua/102-opcuaclient.js` out of git (`HEAD`) into a
- * temporary directory and runs the lifecycle suite against that copy. The run
- * must FAIL: if it passes, the suite does not actually detect the dead close
- * branch and its positive result is meaningless.
+ * Copies the *pre-fix* `opcua/102-opcuaclient.js` out of git into a temporary
+ * directory and runs the lifecycle suite against that copy. The run must FAIL:
+ * if it passes, the suite does not actually detect the dead close branch and
+ * its positive result is meaningless.
+ *
+ * The ref defaults to the commit *before* the fix that introduced the corrected
+ * close path (`9af301b`), because `HEAD` is fixed once that commit lands — a
+ * `HEAD` default would silently make this control vacuous.
  *
  * Usage: node test/negative-control/run-lifecycle-negative.js
- *        CIO_OPCUA_PREFIX_REF=<pre-fix commit> to pin the control to a commit
- *        other than HEAD (required once the fix itself is committed).
+ *        CIO_OPCUA_PREFIX_REF=<pre-fix commit> to pin the control elsewhere.
  * Exit codes: 0 = the suite failed on the pre-fix source (control proven),
  *             1 = the suite passed on the pre-fix source (control broken),
  *             2 = the control could not be set up.
@@ -22,7 +25,8 @@ const os = require("node:os");
 const path = require("node:path");
 
 const packageRoot = path.resolve(__dirname, "..", "..");
-const prefixRef = process.env.CIO_OPCUA_PREFIX_REF || "HEAD";
+const DEFAULT_PREFIX_REF = "9af301b^";
+const prefixRef = process.env.CIO_OPCUA_PREFIX_REF || DEFAULT_PREFIX_REF;
 const gitShow = spawnSync("git", ["show", `${prefixRef}:opcua/102-opcuaclient.js`], {
   cwd: packageRoot,
   encoding: "utf8",
