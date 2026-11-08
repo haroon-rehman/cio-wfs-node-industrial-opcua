@@ -192,7 +192,18 @@ module.exports = function (RED) {
     let livenessFails = 0;
     let livenessBusy = false;
 
+    // Node-RED close/redeploy teardown state (Wave 2 / MEM-006a).
+    // `closed` permanently seals this node instance once the close event has
+    // started: no liveness tick, reconnect, client creation or command queueing
+    // may run afterwards, so a stale callback cannot resurrect a closed client.
+    // `closePromise` makes repeated or concurrent close calls share exactly one
+    // teardown, while every close caller still receives its own done().
+    let closed = false;
+    let closePromise = null;
+    const CLOSE_DISCONNECT_TIMEOUT_MS = 10000;
+
     async function liveness_check() {
+      if (closed) return; // node is shutting down
       if (connectingInFlight) return; // a (re)connect attempt is in flight
       if (currentStatus === "reconnect" || currentStatus === "disconnected") return;
       if (livenessBusy) return;
@@ -384,6 +395,10 @@ module.exports = function (RED) {
     };
 
     function create_opcua_client(callback) {
+      if (closed) {
+        verbose_log("Node is closing, not creating an OPC UA client");
+        return;
+      }
       node.client = null;
       options = {
           securityMode: connectionOption.securityMode,
@@ -537,6 +552,10 @@ module.exports = function (RED) {
     }
 
     async function connect_opcua_client() {
+      if (closed) {
+        verbose_log("Node is closing, not connecting the OPC UA client");
+        return;
+      }
       if (opcuaEndpoint?.login === true) {
         verbose_log(chalk.green("Using UserName & password: ") + chalk.cyan(JSON.stringify(userIdentity)));
         if (opcuaEndpoint.credentials && opcuaEndpoint['user'] && opcuaEndpoint['password']) {
@@ -813,7 +832,11 @@ module.exports = function (RED) {
         // Added statuses when msg must be put to queue
         // Added statuses when msg must be put to queue
         const statuses = ['', 'create client', 'connecting', 'reconnect'];
-        if (statuses.includes(currentStatus)) {
+        if (closed) {
+          // The node is being closed/redeployed: the queue is cleared on close
+          // and never drained again, so queueing here would only leak memory.
+          verbose_log("Node is closing, not queueing OPC UA command");
+        } else if (statuses.includes(currentStatus)) {
           cmdQueue.push(msg);
         } else {
           verbose_warn(`can't work without OPC UA client ${node.client} client ${node.session}`);
@@ -2723,6 +2746,10 @@ module.exports = function (RED) {
     }
 
     function reconnect(msg) {
+      if (closed) {
+        verbose_log("Node is closing, ignoring reconnect request");
+        return;
+      }
       if (msg && msg.OpcUaEndpoint) {
         // Remove listeners if existing
         if (node.client) {
@@ -2793,47 +2820,104 @@ module.exports = function (RED) {
       }
     }
 
-    node.on("close", async (done) => {
+    // Idempotent teardown for node close / redeploy (Wave 2 / MEM-006a).
+    //
+    // The previous implementation read `if (!node.disconnecting) return done()`.
+    // `node.disconnecting` was never initialised anywhere in this file, so the
+    // guard was always true and returned before any of the teardown work: the
+    // client was never disconnected, its listeners were never removed and the
+    // socket stayed open while Node-RED started the replacement connection on
+    // redeploy. The intended semantics were a re-entrancy guard.
+    //
+    // Now every close call awaits one shared teardown. `closed` is set before
+    // the first await, so no stale liveness/reconnect callback can create a new
+    // client after the close started, and the queues are cleared here because
+    // they will never be drained again.
+    function shutdown_opcua_client() {
+      if (closePromise) return closePromise;
+
+      closed = true;
       stop_liveness_watchdog();
-      if (subscription?.isActive) {
-        subscription.terminate();
-        // subscription becomes null by its terminated event
-      }
+      cmdQueue = [];
+      pendingSubscribeMsgs = [];
 
-      if (node.session) {
-        try {
-          await node.session.close();
-          verbose_log("Session closed");
-          set_node_status_to("session closed");
-        } catch (err) {
-          node_error(node.name + " " + err);
-        }
-      }
-
+      // Take ownership of the live objects once, then release the node's
+      // references immediately so nothing can reuse a client that is closing.
+      const client = node.client;
+      const session = node.session;
+      node.client = null;
       node.session = null;
 
-      // Move done() inside the disconnect callback so Node-RED waits for the
-      // TCP socket to fully close before considering this node shut down.
-      // Without this, a redeploy starts a new connection while the old one is
-      // still being torn down, causing the PLC to accumulate stale connections.
-      if (node.client) {
-        if(!node.disconnecting) return done();
-        node.disconnecting = true;
-        node.client.removeListener("connection_reestablished", reestablish);
-        node.client.removeListener("backoff", backoff);
-        node.client.removeListener("start_reconnection", reconnection);
-        await node.client.disconnect(function () {
-          verbose_log("Client disconnected on node close");
-          node.disconnecting = false;
-          node.client = null;
-          done();
+      closePromise = (async () => {
+        if (subscription?.isActive) {
+          try {
+            subscription.terminate();
+          } catch (err) {
+            verbose_warn("Subscription terminate on close failed: " + (err?.message ?? err));
+          }
+        }
+
+        if (session) {
+          try {
+            await session.close();
+            verbose_log("Session closed");
+            set_node_status_to("session closed");
+          } catch (err) {
+            node_error(node.name + " " + err);
+          }
+        }
+
+        if (!client) return;
+
+        client.removeListener("connection_reestablished", reestablish);
+        client.removeListener("backoff", backoff);
+        client.removeListener("start_reconnection", reconnection);
+
+        // Wait for the disconnect callback so Node-RED only considers this node
+        // shut down once the TCP socket is fully closed. A disconnect that never
+        // calls back (or throws) must not block the redeploy forever.
+        await new Promise((resolve) => {
+          let settled = false;
+          let timeout = null;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            if (timeout) clearTimeout(timeout);
+            resolve();
+          };
+          timeout = setTimeout(finish, CLOSE_DISCONNECT_TIMEOUT_MS);
+          if (typeof timeout.unref === "function") timeout.unref();
+          try {
+            const result = client.disconnect(finish);
+            if (result && typeof result.then === "function") result.then(finish, finish);
+          } catch (err) {
+            node_error("Client disconnect on close failed: " + err);
+            finish();
+          }
         });
-      } else {
-        done();
+        verbose_log("Client disconnected on node close");
+      })();
+
+      return closePromise;
+    }
+
+    node.on("close", async (done) => {
+      try {
+        await shutdown_opcua_client();
+      } catch (err) {
+        node_error(node.name + " close error: " + err);
+      } finally {
+        // Every close invocation gets exactly one done(), including repeated and
+        // concurrent ones that share the teardown promise.
+        if (typeof done === "function") done();
       }
     });
 
     node.on("error", function () {
+      if (closed) {
+        verbose_log("Node is closing, ignoring error emit");
+        return;
+      }
       if (subscription?.isActive) {
         subscription.terminate();
         // subscription becomes null by its terminated event

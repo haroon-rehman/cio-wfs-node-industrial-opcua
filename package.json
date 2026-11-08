@@ -58,7 +58,10 @@
   },
   "homepage": "https://github.com/mikakaraila/node-red-contrib-opcua#readme",
   "scripts": {
-    "test": "karma start opcua.conf.js --log-level debug --single-run"
+    "test": "npm run test:reconnect && npm run test:lifecycle && karma start opcua.conf.js --log-level debug --single-run",
+    "test:reconnect": "node --test --test-timeout=60000 test/opcuaClientReconnect.test.js",
+    "test:lifecycle": "node --test --test-timeout=60000 test/opcuaClientLifecycle.test.js",
+    "test:lifecycle:negative": "node test/negative-control/run-lifecycle-negative.js"
   },
   "devDependencies": {
     "jasmine-core": "^3.8.0",
